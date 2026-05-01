@@ -1,0 +1,82 @@
+
+请撰写上述章节的详细内容，直接输出正文（不要重复章节标题在正文之外），格式：
+## {section_title}
+（正文）
+"""
+        content = self._call_llm(system, user, max_tokens=1800)
+        # 若模型没有加标题，手动补上
+        if not content.startswith("##"):
+            content = f"## {section_title}\n\n{content}"
+        return content
+
+    def polish_report(self, draft: str, topic: str) -> str:
+        """
+        对全文进行润色、统一格式，生成最终报告。
+        """
+        system = "你是资深行业报告编辑，请对草稿进行最终润色，但保留所有核心内容和数据。"
+        user = f"""以下是《{topic} 产业链深度研究报告》草稿。请优化：
+1. 修正明显的格式/语法问题。
+2. 保证各级标题使用恰当的 Markdown 标记（#、##、###）。
+3. 可在各章节结尾适当添加“小结”。
+4. 直接返回润色后的完整报告，不要附加任何解释。
+
+草稿：
+{draft}
+"""
+        polished = self._call_llm(system, user, max_tokens=3500)
+        return polished if polished else draft
+
+    def generate_report(self, topic: str, output_file: str = None) -> str:
+        """
+        主流程：大纲生成 → 逐章撰写 → 全文润色 → 保存文件
+        """
+        print(f"📚 开始为「{topic}」生成产业链深度研报...\n")
+        # 1. 大纲
+        print("🧠 规划报告结构...")
+        sections = self.generate_outline(topic)
+        print(f"  大纲共 {len(sections)} 章：")
+        for i, sec in enumerate(sections, 1):
+            print(f"  {i}. {sec}")
+        print("")
+
+        # 2. 逐章撰写
+        draft = f"# {topic} 产业链深度研究报告\n\n"
+        full_text = draft
+        for idx, sec_title in enumerate(sections, 1):
+            print(f"✍️ 撰写第 {idx}/{len(sections)} 章：{sec_title}")
+            sec_content = self.generate_section(topic, sec_title, full_text)
+            full_text += sec_content + "\n\n"
+            time.sleep(0.8)  # 避免触发频率限制
+
+        # 3. 最终润色
+        print("\n✨ 润色与格式化整篇报告...")
+        final_report = self.polish_report(full_text, topic)
+
+        # 4. 保存
+        if output_file is None:
+            safe_name = topic.replace("/", "-").replace(" ", "_")
+            output_file = f"{safe_name}_产业链深度研报.md"
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(final_report)
+        print(f"\n✅ 报告已生成：{output_file}")
+        return final_report
+
+
+def main():
+    parser = argparse.ArgumentParser(description="产业链深度研报生成 Agent")
+    parser.add_argument("topic", type=str, help="研究的产业链主题，例如：人工智能芯片、光伏、动力电池")
+    parser.add_argument("--output", "-o", type=str, default=None, help="输出文件路径（默认自动命名）")
+    parser.add_argument("--model", "-m", type=str, default="gpt-4o", help="使用的模型名称")
+    parser.add_argument("--temperature", "-t", type=float, default=0.7, help="生成温度")
+    args = parser.parse_args()
+
+    if not openai.api_key:
+        print("❌ 请设置 OPENAI_API_KEY 环境变量或在 .env 文件中定义。")
+        return
+
+    agent = IndustryReportAgent(model=args.model, temperature=args.temperature)
+    agent.generate_report(args.topic, args.output)
+
+
+if __name__ == "__main__":
+    main()
